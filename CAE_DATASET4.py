@@ -1,31 +1,10 @@
 # python3
 # -*- coding: utf-8 -*-
 """
-Created on Tue Jul 18 11:23:31 2017
 
-@author: Oscar Li
+@original_author: Oscar Li
+@author of changes: Tereza Votypkova
 """
-
-## TODO: change the number of channels to 3, if this does not work just run a preprocessing to make pics 2 channel DONE
-## TODO: integrate the new datasets into the batch_x and batch_y runs (should be straightforward) DONE
-## TODO: Integrate the mapping into the final matrix generation DONE
-## TODO: Run for a couple of epochs to make sure it is running properly through all parts
-## TODO: one-hot encode the classes so it agrees with the lambda shape
-
-## TODO: save a couple of images as RGB DONE
-## TODO: try them in the main code to see if it works with the color channel
-## TODO: if it works, re-save all images as RGB in the same structure DONE
-## TODO: run 30 epochs on the changed data if it works properly
-
-## TODO: change dimension (batch, height, width, channels)
-## NOTE: going over a few manual steps, taking stride and all this information and go over the conv. layer result
-## try flattening + reordering, do a minimal example (with a dummy tensor), try on mnist + mnist hand sign or
-## fashion, and then on complex like this, WIP commits, push more often, for the next meeting to have logging and plots
-## tensorboard!!!!!! --> finding out why it does not work
-
-## TODO: Preprocess given data in order to have the desired structure DONE
-## TODO: Write a function that gets the names of the classes and returns a list of them for onehot encoding DONE
-## TODO: Run the code on the sign language DONE
 
 ## TODO: find a correct level of abstraction, add some data preprocessing to the main code (wrapper function)
 ## TODO: make it possible to plug the wrappers into the main code (not to spend too much time on the preprocessing)
@@ -702,10 +681,6 @@ class PrototypeDL():
 
 
 class PreprocessData():
-    #def __init__(self):
-        #self.path = path
-        #self.flag = flag
-        #self.preprocess_data(self.path,self.flag)
     @staticmethod
     def preprocess_data(path, flag):
         if flag==1:
@@ -772,14 +747,6 @@ class CustomImageFolder(ImageFolder):
         classes = list(self.classes_to_idx().keys())
         classes_to_idx = self.classes_to_idx()
         return classes, classes_to_idx
-
-#PATH = 'cifar10/'
-#PATH = 'sign_lang/data'
-#path_to_process = 'sign_lang/sign_mnist_train/sign_mnist_train.csv'
-#datei = PreprocessData(path_to_process, False)
-#GPUID = 1
-#os.environ["CUDA_VISIBLE_DEVICES"] = str(GPUID)
-
 
 if __name__ == "__main__":
     import argparse
