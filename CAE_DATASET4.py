@@ -15,6 +15,30 @@
 ## TODO: search for template for thesis, start thinking about a structure
 ## 22nd --> 13:00
 
+## Contact sysadmin about how the data is handled there, how can I use my own data and code -->
+## Leave data augmentation away and try like this
+## check if there are free gpus, htop (which processes are currently running), then set the variable
+##exportcuda --> visible devices and set it to the gpu I want to use, install conda environment with
+## requirements file with
+## make it work with newer tensorflow and general versions
+## experiment section --> explain and interpret like the authors
+## abstract, introduction plus motivation, theory section (fundamental knowledge) --> supervised learning in image
+## domain, neural networks plus autoencoders plus explainability (related work section, prototype network and similar networks)
+## distinguish between explainabilty approaches
+## next section is the related work
+## main experiment section --> methodology, results, discussion, compare what I have and what they had
+## conclusion, what did we learn
+## 12th Friday 13:00
+
+## to plot averages of different runs, add it with standard deviation of the different rounds
+## round the excel numbers to 2 decimals DONE
+## figures with classes --> try to change the header in excel to the classes DONE
+## add one or more examples of the classes in the class images (more clearer then) DONE
+## indicate the experiments properly in the paper DONE
+## methodology --> why i show certain things, what is the goal, how the training was done and why DONE
+
+## to work on the thesis this weekend
+
 
 # noinspection PyUnresolvedReferences
 from __future__ import division, print_function, absolute_import
@@ -33,7 +57,7 @@ import matplotlib.pyplot as plt
 import optuna
 
 from autoencoder_helpers import makedirs, list_of_distances, print_and_write, list_of_norms
-from data_preprocessing import batch_elastic_transform, batch_elastic_transform_color
+from data_preprocessing import batch_elastic_transform, batch_elastic_transform_color,batch_elastic_transform_color_
 
 import pandas as pd
 from IPython.core.display import HTML
@@ -50,9 +74,10 @@ from tensorflow import keras
 # writing a custom ImageFolder class to take care of one-hot encoding
 
 class PrototypeDL():
-    def __init__(self, data_path, color_channels, height, model_folder, flag):
+    def __init__(self, data_path, color_channels, height, model_folder, flag, hpt):
         self.data_path = data_path
         self.flag = flag
+        self.hpt = hpt
         self.model_folder = model_folder
         self.color_channels = color_channels
         self.PATH = PreprocessData().preprocess_data(self.data_path, self.flag)
@@ -65,31 +90,32 @@ class PrototypeDL():
         self.model_filename = "mnist_cae"
         self.n_saves = None
         # training parameters
-        self.learning_rate = 0.002
-        self.training_epochs = 70  # 1500
+        #self.learning_rate = 0.002
+        self.learning_rate = 0.0042982187555626675#0.002
+        self.training_epochs = 100  # 1500
         # parameter to tune --> batch_size
         # batch_size = 250  # the size of a minibatch
-        self.test_display_step = 100  # how many epochs we do evaluate on the test set once
+        self.test_display_step = 3  # how many epochs we do evaluate on the test set once
         self.save_step = 3  # how frequently do we save the model to disk
         # elastic deformation parameters
         self.sigma = 4
         self.alpha = 20
-        # lambda's are the ratios between the four error terms
-        self.lambda_class = 20
+        # lambda's are the ratios between the four error terms9o
+        self.lambda_class = 10#20
         # parameters to tune
-        self.lambda_ae = 1
-        self.lambda_1 = 1  # 1 and 2 here corresponds to the notation we used in the paper
-        self.lambda_2 = 1
+        self.lambda_ae = 0.5840277919799143#1
+        self.lambda_1 = 0.0540288773343548#1 # 1 and 2 here corresponds to the notation we used in the paper
+        self.lambda_2 = 0.992380401904623#1 #1
 
-        self.input_height = 28
+        self.input_height = height#28
         # input_height = 28  # MNIST data input shape
         self.input_width = self.input_height
         self.n_input_channel = color_channels  # the number of color channels; for MNIST is 1.
         self.input_size = self.input_height * self.input_width * self.n_input_channel  # the number of pixels in one input image
-        self.n_classes = 20
+        self.n_classes = 20#20#151
 
         # Network Parameters
-        self.n_prototypes = 15  # the number of prototypes
+        self.n_prototypes = 15 #15  # the number of prototypes
         self.n_layers = 4
 
         # height and width of each layers' filters
@@ -109,7 +135,7 @@ class PrototypeDL():
         self.n_map_2 = 32
         self.n_map_3 = 32
         # n_map_4 = 10
-        self.n_map_4 = 20  # 20
+        self.n_map_4 = 20#20#151  # 20
 
         # the shapes of each layer's filter
         self.filter_shape_1 = [self.f_1, self.f_1, self.n_input_channel, self.n_map_1]
@@ -423,227 +449,237 @@ class PrototypeDL():
         # the amount of GPU memory our process occupies
         config.gpu_options.per_process_gpu_memory_fraction = 0.3
 
-        with tf.Session(config=config) as sess:
-            sess.run(init)
-            # we compute the number of batches because both training and evaluation
-            # happens batch by batch; we do not throw the entire test set onto the GPU
-            # n_train_batch = mnist.train.num_examples // batch_size
-            # n_valid_batch = mnist.validation.num_examples // batch_size
-            # n_test_batch = mnist.test.num_examples // batch_size
+        if self.hpt==1:
+            study = optuna.create_study(direction='maximize')
+            study.optimize(self.objective_fcn, n_trials=10) #5 before
+        else:
 
-            n_train_batch = len(train_set) // self.batch_size
-            n_valid_batch = len(valid_set) // self.batch_size
-            n_test_batch = len(test_set) // self.batch_size
-            print(n_train_batch, n_valid_batch, n_test_batch)
-            # Training cycle
-            for epoch in range(self.training_epochs):
-                print_and_write("#" * 80, console_log)
-                print_and_write("Epoch: %04d" % (epoch), console_log)
-                start_time = time.time()
-                train_ce, train_ae, train_e1, train_e2, train_te, train_ac = 0.0, 0.0, 0.0, 0.0, 0.0, 0.0
-                # Loop over all batches
-                for i in range(n_train_batch):
-                    # batch_x, batch_y = mnist.train.next_batch(batch_size)
-                    batch_x, batch_y = next(iter(train))
-                    if self.color_channels==1:
-                        elastic_batch_x = batch_elastic_transform(batch_x, sigma=self.sigma, alpha=self.alpha, height=self.input_height,
-                                                              width=self.input_width)
-                    else:
-                        elastic_batch_x = batch_elastic_transform_color(batch_x, sigma=self.sigma, alpha=self.alpha,
-                                                                  height=self.input_height,
+            with tf.Session(config=config) as sess:
+                tf.set_random_seed(1234)
+                sess.run(init)
+                # we compute the number of batches because both training and evaluation
+                # happens batch by batch; we do not throw the entire test set onto the GPU
+                # n_train_batch = mnist.train.num_examples // batch_size
+                # n_valid_batch = mnist.validation.num_examples // batch_size
+                # n_test_batch = mnist.test.num_examples // batch_size
+
+                n_train_batch = len(train_set) // self.batch_size
+                n_valid_batch = len(valid_set) // self.batch_size
+                n_test_batch = len(test_set) // self.batch_size
+                print(n_train_batch, n_valid_batch, n_test_batch)
+                # Training cycle
+                for epoch in range(self.training_epochs):
+                    print_and_write("#" * 80, console_log)
+                    print_and_write("Epoch: %04d" % (epoch), console_log)
+                    start_time = time.time()
+                    train_ce, train_ae, train_e1, train_e2, train_te, train_ac = 0.0, 0.0, 0.0, 0.0, 0.0, 0.0
+                    # Loop over all batches
+                    for i in range(n_train_batch):
+                        # batch_x, batch_y = mnist.train.next_batch(batch_size)
+                        batch_x, batch_y = next(iter(train))
+                        if self.color_channels==1:
+                            elastic_batch_x = batch_elastic_transform(batch_x, sigma=self.sigma, alpha=self.alpha, height=self.input_height,
                                                                   width=self.input_width)
-                    # elastic_batch_x = elastic_batch_x.reshape((32, input_width, input_width,3))
-                    _, ce, ae, e1, e2, te, ac = sess.run(
-                        (optimizer,
-                         class_error,
-                         ae_error,
-                         error_1,
-                         error_2,
-                         total_error,
-                         accuracy),
-                        feed_dict={self.X: elastic_batch_x,
+                            #elastic_batch_x = batch_x
+                        else:
+                            elastic_batch_x = batch_elastic_transform_color(batch_x, sigma=self.sigma, alpha=self.alpha,
+                                                                      height=self.input_height,
+                                                                      width=self.input_width)
+                            #elastic_batch_x = batch_x
+                        # elastic_batch_x = elastic_batch_x.reshape((32, input_width, input_width,3))
+                        _, ce, ae, e1, e2, te, ac = sess.run(
+                            (optimizer,
+                            class_error,
+                            ae_error,
+                            error_1,
+                            error_2,
+                            total_error,
+                            accuracy),
+                            feed_dict={self.X: elastic_batch_x,
                                    self.Y: batch_y,
                                    self.lambda_class_t: self.lambda_class,
                                    self.lambda_ae_t: self.lambda_ae,
                                    self.lambda_1_t: self.lambda_1,
                                    self.lambda_2_t: self.lambda_2})
-                    train_ce += (ce / n_train_batch)
-                    train_ae += (ae / n_train_batch)
-                    train_e1 += (e1 / n_train_batch)
-                    train_e2 += (e2 / n_train_batch)
-                    train_te += (te / n_train_batch)
-                    train_ac += (ac / n_train_batch)
-                self.history["train"].append(train_ac)
-                end_time = time.time()
-                print_and_write('training takes {0:.2f} seconds.'.format((end_time - start_time)), console_log)
-                # after every epoch, check the error terms on the entire training set
-                print_and_write("training set errors:", console_log)
-                print_and_write("\tclassification error: {:.6f}".format(train_ce), console_log)
-                print_and_write("\tautoencoder error: {:.6f}".format(train_ae), console_log)
-                print_and_write("\terror_1: {:.6f}".format(train_e1), console_log)
-                print_and_write("\terror_2: {:.6f}".format(train_e2), console_log)
-                print_and_write("\ttotal error: {:.6f}".format(train_te), console_log)
-                print_and_write("\taccuracy: {:.4f}".format(train_ac), console_log)
+                        train_ce += (ce / n_train_batch)
+                        train_ae += (ae / n_train_batch)
+                        train_e1 += (e1 / n_train_batch)
+                        train_e2 += (e2 / n_train_batch)
+                        train_te += (te / n_train_batch)
+                        train_ac += (ac / n_train_batch)
+                    self.history["train"].append(train_ac)
+                    end_time = time.time()
+                    print_and_write('training takes {0:.2f} seconds.'.format((end_time - start_time)), console_log)
+                    # after every epoch, check the error terms on the entire training set
+                    print_and_write("training set errors:", console_log)
+                    print_and_write("\tclassification error: {:.6f}".format(train_ce), console_log)
+                    print_and_write("\tautoencoder error: {:.6f}".format(train_ae), console_log)
+                    print_and_write("\terror_1: {:.6f}".format(train_e1), console_log)
+                    print_and_write("\terror_2: {:.6f}".format(train_e2), console_log)
+                    print_and_write("\ttotal error: {:.6f}".format(train_te), console_log)
+                    print_and_write("\taccuracy: {:.4f}".format(train_ac), console_log)
 
-                # validation set error terms evaluation
-                valid_ce, valid_ae, valid_e1, valid_e2, valid_te, valid_ac = 0.0, 0.0, 0.0, 0.0, 0.0, 0.0
-                # Loop over all batches
-                for i in range(n_valid_batch):
-                    batch_x, batch_y = next(iter(valid))
-                    # batch_x = batch_x.reshape(32, input_width, input_height, n_input_channel)
-                    ce, ae, e1, e2, te, ac = sess.run(
-                        (class_error,
-                         ae_error,
-                         error_1,
-                         error_2,
-                         total_error,
-                         accuracy),
-                        feed_dict={self.X: batch_x,
+                    # validation set error terms evaluation
+                    valid_ce, valid_ae, valid_e1, valid_e2, valid_te, valid_ac = 0.0, 0.0, 0.0, 0.0, 0.0, 0.0
+                    # Loop over all batches
+                    for i in range(n_valid_batch):
+                        batch_x, batch_y = next(iter(valid))
+                        # batch_x = batch_x.reshape(32, input_width, input_height, n_input_channel)
+                        ce, ae, e1, e2, te, ac = sess.run(
+                            (class_error,
+                            ae_error,
+                            error_1,
+                            error_2,
+                            total_error,
+                            accuracy),
+                            feed_dict={self.X: batch_x,
                                    self.Y: batch_y,
                                    self.lambda_class_t: self.lambda_class,
                                    self.lambda_ae_t: self.lambda_ae,
                                    self.lambda_2_t: self.lambda_2,
                                    self.lambda_1_t: self.lambda_1})
-                    valid_ce += ce / n_valid_batch
-                    valid_ae += ae / n_valid_batch
-                    valid_e1 += e1 / n_valid_batch
-                    valid_e2 += e2 / n_valid_batch
-                    valid_te += te / n_valid_batch
-                    valid_ac += ac / n_valid_batch
-                self.history["valid"].append(valid_ac)
-                # after every epoch, check the error terms on the entire training set
-                print_and_write("validation set errors:", console_log)
-                print_and_write("\tclassification error: {:.6f}".format(valid_ce), console_log)
-                print_and_write("\tautoencoder error: {:.6f}".format(valid_ae), console_log)
-                print_and_write("\terror_1: {:.6f}".format(valid_e1), console_log)
-                print_and_write("\terror_2: {:.6f}".format(valid_e2), console_log)
-                print_and_write("\ttotal error: {:.6f}".format(valid_te), console_log)
-                print_and_write("\taccuracy: {:.4f}".format(valid_ac), console_log)
+                        valid_ce += ce / n_valid_batch
+                        valid_ae += ae / n_valid_batch
+                        valid_e1 += e1 / n_valid_batch
+                        valid_e2 += e2 / n_valid_batch
+                        valid_te += te / n_valid_batch
+                        valid_ac += ac / n_valid_batch
+                    self.history["valid"].append(valid_ac)
+                    # after every epoch, check the error terms on the entire training set
+                    print_and_write("validation set errors:", console_log)
+                    print_and_write("\tclassification error: {:.6f}".format(valid_ce), console_log)
+                    print_and_write("\tautoencoder error: {:.6f}".format(valid_ae), console_log)
+                    print_and_write("\terror_1: {:.6f}".format(valid_e1), console_log)
+                    print_and_write("\terror_2: {:.6f}".format(valid_e2), console_log)
+                    print_and_write("\ttotal error: {:.6f}".format(valid_te), console_log)
+                    print_and_write("\taccuracy: {:.4f}".format(valid_ac), console_log)
 
-                # test set accuracy evaluation
-                if epoch % self.test_display_step == 0 or epoch == self.training_epochs - 1:
-                    test_ac = 0.0
-                    for i in range(n_test_batch):
-                        batch_x, batch_y = next(iter(test))
-                        # batch_x = batch_x.reshape(32, input_width, input_height, n_input_channel)
-                        ac = sess.run(accuracy,
+                    # test set accuracy evaluation
+                    if epoch % self.test_display_step == 0 or epoch == self.training_epochs - 1:
+                        test_ac = 0.0
+                        for i in range(n_test_batch):
+                            batch_x, batch_y = next(iter(test))
+                            # batch_x = batch_x.reshape(32, input_width, input_height, n_input_channel)
+                            ac = sess.run(accuracy,
                                       feed_dict={self.X: batch_x,
                                                  self.Y: batch_y})
-                        test_ac += ac / n_test_batch
-                    self.history["test"].append(test_ac)
-                    # after every epoch, check the error terms on the entire training set
-                    print_and_write("test set:", console_log)
-                    print_and_write("\taccuracy: {:.4f}".format(test_ac), console_log)
+                            test_ac += ac / n_test_batch
+                        self.history["test"].append(test_ac)
+                        # after every epoch, check the error terms on the entire training set
+                        print_and_write("test set:", console_log)
+                        print_and_write("\taccuracy: {:.4f}".format(test_ac), console_log)
 
-                if epoch % self.save_step == 0 or epoch == self.training_epochs - 1:
-                    # one .meta file is enough to recover the computational graph
-                    saver.save(sess, os.path.join(self.model_folder, self.model_filename),
+                    if epoch % self.save_step == 0 or epoch == self.training_epochs - 1:
+                        # one .meta file is enough to recover the computational graph
+                        saver.save(sess, os.path.join(self.model_folder, self.model_filename),
                                global_step=epoch,
                                write_meta_graph=(epoch == 0 or epoch == self.training_epochs - 1))
-                    prototype_imgs = sess.run(self.X_decoded,
+                        prototype_imgs = sess.run(self.X_decoded,
                                               feed_dict={self.feature_vectors: self.prototype_feature_vectors.eval()})
-                    # visualize the prototype images
-                    n_cols = 5
-                    n_rows = self.n_prototypes // n_cols + 1 if self.n_prototypes % n_cols != 0 else self.n_prototypes // n_cols
-                    g, b = plt.subplots(n_rows, n_cols, figsize=(n_cols, n_rows))
-                    # g, b = plt.subplots(n_rows, n_cols, figsize=(10, 10))
-                    for i in range(n_rows):
-                        for j in range(n_cols):
-                            if i * n_cols + j < self.n_prototypes:
-                                if self.color_channels==1:
-                                    b[i][j].imshow(
-                                        torch.from_numpy(prototype_imgs[i * n_cols + j]).reshape(self.input_height, self.input_width),
-                                        cmap='gray',
-                                        interpolation='none')
-                                    b[i][j].axis('off')
-                                else:
-                                    b[i][j].imshow(
-                                        torch.from_numpy(prototype_imgs[i * n_cols + j]).reshape(3, self.input_height,
+                        # visualize the prototype images
+                        n_cols = 5
+                        n_rows = self.n_prototypes // n_cols + 1 if self.n_prototypes % n_cols != 0 else self.n_prototypes // n_cols
+                        g, b = plt.subplots(n_rows, n_cols, figsize=(n_cols, n_rows))
+                        # g, b = plt.subplots(n_rows, n_cols, figsize=(10, 10))
+                        for i in range(n_rows):
+                            for j in range(n_cols):
+                                if i * n_cols + j < self.n_prototypes:
+                                    if self.color_channels==1:
+                                        b[i][j].imshow(
+                                            torch.from_numpy(prototype_imgs[i * n_cols + j]).reshape(self.input_height, self.input_width),
+                                            cmap='gray',
+                                            interpolation='none')
+                                        b[i][j].axis('off')
+                                    else:
+                                        b[i][j].imshow(
+                                            torch.from_numpy(prototype_imgs[i * n_cols + j]).reshape(3, self.input_height,
                                                                                                  self.input_width).permute(1,
                                                                                                                       2,
                                                                                                                       0),
-                                        cmap='jet',
-                                        interpolation='none')
-                                    b[i][j].axis('off')
+                                            cmap='jet',
+                                            interpolation='none')
+                                        b[i][j].axis('off')
 
-                    plt.savefig(os.path.join(img_folder, 'prototype_result-' + str(epoch) + '.png'),
+                        plt.savefig(os.path.join(img_folder, 'prototype_result-' + str(epoch) + '.png'),
                                 transparent=True,
                                 bbox_inches='tight',
                                 pad_inches=0)
-                    plt.close()
+                        plt.close()
 
-                    # generating single images
-                    for i in range(n_rows):
-                        for j in range(n_cols):
-                            if i * n_cols + j < self.n_prototypes:
-                                l, h = plt.subplots(1, 1, figsize=(1, 1))
-                                if self.color_channels==1:
-                                    h.imshow(
-                                        torch.from_numpy(prototype_imgs[i * n_cols + j]).reshape(self.input_height, self.input_width),
-                                        cmap='gray',
-                                        interpolation='none')
-                                    h.axis('off')
-                                else:
-                                    h.imshow(torch.from_numpy(prototype_imgs[i * n_cols + j]).reshape(3, self.input_height,
+                        # generating single images
+                        for i in range(n_rows):
+                            for j in range(n_cols):
+                                if i * n_cols + j < self.n_prototypes:
+                                    l, h = plt.subplots(1, 1, figsize=(1, 1))
+                                    if self.color_channels==1:
+                                        h.imshow(
+                                            torch.from_numpy(prototype_imgs[i * n_cols + j]).reshape(self.input_height, self.input_width),
+                                            cmap='gray',
+                                            interpolation='none')
+                                        h.axis('off')
+                                    else:
+                                        h.imshow(torch.from_numpy(prototype_imgs[i * n_cols + j]).reshape(3, self.input_height,
                                                                                                       self.input_width).permute(
-                                        1, 2, 0),
-                                             cmap='jet',
-                                             interpolation='none')
-                                    h.axis('off')
+                                            1, 2, 0),
+                                                 cmap='jet',
+                                                interpolation='none')
+                                        h.axis('off')
 
-                                plt.savefig(
-                                    os.path.join(self.prototype_folder, 'prototype_result-' + str(i) + str(j) + '.png'),
-                                    transparent=True,
-                                    bbox_inches='tight',
-                                    pad_inches=0)
-                                plt.close()
+                                    plt.savefig(
+                                        os.path.join(self.prototype_folder, 'prototype_result-' + str(i) + str(j) + '.png'),
+                                        transparent=True,
+                                        bbox_inches='tight',
+                                        pad_inches=0)
+                                    plt.close()
 
-                    # Applying encoding and decoding over a small subset of the training set
-                    examples_to_show = 10
-                    #            encode_decode = sess.run(X_decoded,
-                    #                                     feed_dict={X: mnist.train.images[:examples_to_show]})
-                    encode_decode = sess.run(self.X_decoded,
+                        # Applying encoding and decoding over a small subset of the training set
+                        examples_to_show = 10
+                        #            encode_decode = sess.run(X_decoded,
+                        #                                     feed_dict={X: mnist.train.images[:examples_to_show]})
+                        encode_decode = sess.run(self.X_decoded,
                                              feed_dict={self.X: data[:examples_to_show]})
-                    # Compare original images with their reconstructions
-                    f, a = plt.subplots(2, examples_to_show, figsize=(examples_to_show, 2))
-                    for i in range(examples_to_show):
-                        if self.color_channels==1:
-                            a[0][i].imshow(data[i].reshape(self.input_height, self.input_width),
+                        # Compare original images with their reconstructions
+                        f, a = plt.subplots(2, examples_to_show, figsize=(examples_to_show, 2))
+                        for i in range(examples_to_show):
+                            if self.color_channels==1:
+                                a[0][i].imshow(data[i].reshape(self.input_height, self.input_width),
+                                           cmap='gray',
+                                           interpolation='none')
+                                a[0][i].axis('off')
+                                a[1][i].imshow(torch.from_numpy(encode_decode[i]).reshape(self.input_height, self.input_width),
                                        cmap='gray',
                                        interpolation='none')
-                            a[0][i].axis('off')
-                            a[1][i].imshow(torch.from_numpy(encode_decode[i]).reshape(self.input_height, self.input_width),
-                                       cmap='gray',
-                                       interpolation='none')
-                            a[1][i].axis('off')
-                        else:
-                            a[0][i].imshow(data[i].reshape(3, self.input_height, self.input_width).permute(1, 2, 0),
+                                a[1][i].axis('off')
+                            else:
+                                a[0][i].imshow(data[i].reshape(3, self.input_height, self.input_width).permute(1, 2, 0),
                                            cmap='jet',
                                            interpolation='none')
-                            a[0][i].axis('off')
-                            # a[1][i].imshow(encode_decode[i].reshape(input_height, input_width, n_input_channel),
-                            #               cmap='jet',
-                            #               interpolation='none')
-                            a[1][i].imshow(
-                                torch.from_numpy(encode_decode[i]).reshape(3, self.input_height, self.input_width).permute(1, 2,
+                                a[0][i].axis('off')
+                                # a[1][i].imshow(encode_decode[i].reshape(input_height, input_width, n_input_channel),
+                                #               cmap='jet',
+                                #               interpolation='none')
+                                a[1][i].imshow(
+                                    torch.from_numpy(encode_decode[i]).reshape(3, self.input_height, self.input_width).permute(1, 2,
                                                                                                                  0),
-                                cmap='jet',
-                                interpolation='none')
-                            a[1][i].axis('off')
+                                    cmap='jet',
+                                    interpolation='none')
+                                a[1][i].axis('off')
 
-                    plt.savefig(os.path.join(img_folder, 'decoding_result-' + str(epoch) + '.png'),
+                        plt.savefig(os.path.join(img_folder, 'decoding_result-' + str(epoch) + '.png'),
                                 transparent=True,
                                 bbox_inches='tight',
                                 pad_inches=0)
-                    plt.close()
-            print_and_write("Optimization Finished!", console_log)
-            last_ep = epoch
-        console_log.close()
-        self.save_matrix(classes, last_ep)
+                        plt.close()
+                print_and_write("Optimization Finished!", console_log)
+                last_ep = epoch
+            console_log.close()
+            self.plot()
+            self.save_matrix(classes, last_ep)
     def plot(self):
         plt.plot(self.history['train'])
         plt.plot(self.history['valid'])
-        plt.plot(self.history['test'])
+        #plt.plot(self.history['test'])
+        plt.axhline(y=self.history['test'][-1], color='g', linestyle='dotted')
         plt.title('model accuracy')
         plt.ylabel('accuracy')
         plt.xlabel('epoch')
@@ -678,6 +714,186 @@ class PrototypeDL():
                 f'{self.prototype_folder}/matrix.html',
                 'w') as fo:
             fo.write(df.to_html(render_links=True, escape=False))
+
+    def objective_fcn(self, trial):
+
+        train_set, valid_set, test_set, data, train, valid, test, classes = self.prepare_data()
+
+        prototype_distances = list_of_distances(self.feature_vectors,
+                                                self.prototype_feature_vectors)
+        prototype_distances = tf.identity(prototype_distances, name='prototype_distances')
+        feature_vector_distances = list_of_distances(self.prototype_feature_vectors,
+                                                     self.feature_vectors)
+        feature_vector_distances = tf.identity(feature_vector_distances, name='feature_vector_distances')
+
+        # the logits are the weighted sum of distances from prototype_distances
+        logits = tf.matmul(prototype_distances, self.last_layer['w'], name='logits')
+        probability_distribution = tf.nn.softmax(logits=logits,
+                                                 name='probability_distribution')
+
+        '''
+        the error function consists of 4 terms, the autoencoder loss,
+        the classification loss, and the two requirements that every feature vector in
+        X look like at least one of the prototype feature vectors and every prototype
+        feature vector look like at least one of the feature vectors in X.
+        '''
+        ae_error = tf.reduce_mean(list_of_norms(self.X_decoded - self.X_true), name='ae_error')
+        class_error = tf.losses.softmax_cross_entropy(onehot_labels=self.Y, logits=logits)
+        class_error = tf.identity(class_error, name='class_error')
+        error_1 = tf.reduce_mean(tf.reduce_min(feature_vector_distances, axis=1), name='error_1')
+        error_2 = tf.reduce_mean(tf.reduce_min(prototype_distances, axis=1), name='error_2')
+
+        # total_error is the our minimization objective
+        total_error = self.lambda_class_t * class_error + \
+                      self.lambda_ae_t * ae_error + \
+                      self.lambda_1_t * error_1 + \
+                      self.lambda_2_t * error_2
+        total_error = tf.identity(total_error, name='total_error')
+
+        # accuracy is not the classification error term; it is the percentage accuracy
+        correct_prediction = tf.equal(tf.argmax(logits, 1),
+                                      tf.argmax(self.Y, 1),
+                                      name='correct_prediction')
+        accuracy = tf.reduce_mean(tf.cast(correct_prediction, dtype=tf.float32),
+                                  name='accuracy')
+
+        optimizer = tf.train.AdamOptimizer(self.learning_rate).minimize(total_error)
+        # add the optimizer to collection so that we can retrieve the optimizer and resume training
+        tf.add_to_collection("optimizer", optimizer)
+
+        # Create the variable init operation and a saver object to store the model
+        init = tf.global_variables_initializer()
+
+        hyperparameters = {
+            "learning_rate": trial.suggest_float("learning_rate", 0.001, 0.1, log=True),
+            "training_epochs": self.training_epochs,
+            "batch_size": self.batch_size,
+            "test_display_step": self.test_display_step,
+            "save_step": self.save_step,
+
+            "lambda_class": trial.suggest_int('lambda_class', 5, 30),
+            "lambda_ae": trial.suggest_uniform('lambda_ae', 0, 1),
+            "lambda_1": trial.suggest_uniform('lambda_1', 0, 1),
+            "lambda_2": trial.suggest_uniform('lambda_2', 0, 1),
+
+            "input_height": self.input_height,
+            "input_width": self.input_width,
+            "n_input_channel": self.n_input_channel,
+            "input_size": self.input_size,
+            "n_classes": self.n_classes,
+
+            "n_prototypes": self.n_prototypes,
+            "n_layers": self.n_layers,
+
+            "f_1": self.f_1,
+            "f_2": self.f_2,
+            "f_3": self.f_3,
+            "f_4": self.f_4,
+
+            "s_1": self.s_1,
+            "s_2": self.s_2,
+            "s_3": self.s_3,
+            "s_4": self.s_4,
+
+            "n_map_1": self.n_map_1,
+            "n_map_2": self.n_map_2,
+            "n_map_3": self.n_map_3,
+            "n_map_4": self.n_map_4,
+
+            "n_features": self.n_features,
+        }
+        # save the hyperparameters above in the model snapshot
+        for (name, value) in hyperparameters.items():
+            tf.add_to_collection('hyperparameters', tf.constant(name=name, value=value))
+
+        saver = tf.train.Saver(max_to_keep=self.n_saves)
+        last_ep = 0
+        config = tf.ConfigProto()
+        # the amount of GPU memory our process occupies
+        config.gpu_options.per_process_gpu_memory_fraction = 0.3
+
+        with tf.Session(config=config) as sess:
+            sess.run(init)
+            # we compute the number of batches because both training and evaluation
+            # happens batch by batch; we do not throw the entire test set onto the GPU
+            # n_train_batch = mnist.train.num_examples // batch_size
+            # n_valid_batch = mnist.validation.num_examples // batch_size
+            # n_test_batch = mnist.test.num_examples // batch_size
+
+            n_train_batch = len(train_set) // self.batch_size
+            n_valid_batch = len(valid_set) // self.batch_size
+            n_test_batch = len(test_set) // self.batch_size
+            print(n_train_batch, n_valid_batch, n_test_batch)
+            # Training cycle
+            valid_accuracies = []
+            for epoch in range(self.training_epochs):
+                start_time = time.time()
+                train_ce, train_ae, train_e1, train_e2, train_te, train_ac = 0.0, 0.0, 0.0, 0.0, 0.0, 0.0
+                # Loop over all batches
+                for i in range(n_train_batch):
+                    # batch_x, batch_y = mnist.train.next_batch(batch_size)
+                    batch_x, batch_y = next(iter(train))
+                    if self.color_channels == 1:
+                        # elastic_batch_x = batch_elastic_transform(batch_x, sigma=self.sigma, alpha=self.alpha, height=self.input_height,
+                        #                                      width=self.input_width)
+                        elastic_batch_x = batch_x
+                    else:
+                        # elastic_batch_x = batch_elastic_transform_color(batch_x, sigma=self.sigma, alpha=self.alpha,
+                        #                                          height=self.input_height,
+                        #                                          width=self.input_width)
+                        elastic_batch_x = batch_x
+                    # elastic_batch_x = elastic_batch_x.reshape((32, input_width, input_width,3))
+                    _, ce, ae, e1, e2, te, ac = sess.run(
+                        (optimizer,
+                         class_error,
+                         ae_error,
+                         error_1,
+                         error_2,
+                         total_error,
+                         accuracy),
+                        feed_dict={self.X: elastic_batch_x,
+                                   self.Y: batch_y,
+                                   self.lambda_class_t: self.lambda_class,
+                                   self.lambda_ae_t: self.lambda_ae,
+                                   self.lambda_1_t: self.lambda_1,
+                                   self.lambda_2_t: self.lambda_2})
+                    train_ce += (ce / n_train_batch)
+                    train_ae += (ae / n_train_batch)
+                    train_e1 += (e1 / n_train_batch)
+                    train_e2 += (e2 / n_train_batch)
+                    train_te += (te / n_train_batch)
+                    train_ac += (ac / n_train_batch)
+                #self.history["train"].append(train_ac)
+                end_time = time.time()
+                # after every epoch, check the error terms on the entire training setf
+
+                # validation set error terms evaluation
+                valid_ce, valid_ae, valid_e1, valid_e2, valid_te, valid_ac = 0.0, 0.0, 0.0, 0.0, 0.0, 0.0
+                # Loop over all batches
+                for i in range(n_valid_batch):
+                    batch_x, batch_y = next(iter(valid))
+                    # batch_x = batch_x.reshape(32, input_width, input_height, n_input_channel)
+                    ce, ae, e1, e2, te, ac = sess.run(
+                        (class_error,
+                         ae_error,
+                         error_1,
+                         error_2,
+                         total_error,
+                         accuracy),
+                        feed_dict={self.X: batch_x,
+                                   self.Y: batch_y,
+                                   self.lambda_class_t: self.lambda_class,
+                                   self.lambda_ae_t: self.lambda_ae,
+                                   self.lambda_2_t: self.lambda_2,
+                                   self.lambda_1_t: self.lambda_1})
+                    valid_ce += ce / n_valid_batch
+                    valid_ae += ae / n_valid_batch
+                    valid_e1 += e1 / n_valid_batch
+                    valid_e2 += e2 / n_valid_batch
+                    valid_te += te / n_valid_batch
+                    valid_ac += ac / n_valid_batch
+                valid_accuracies.append(valid_ac)
+        return np.max(valid_accuracies)
 
 
 class PreprocessData():
@@ -795,8 +1011,16 @@ if __name__ == "__main__":
         default=None,
     )
 
+    parser.add_argument(
+        "--hpt",
+        "-hp",
+        help="hpt",
+        type=int,
+        default=None,
+    )
+
     args = parser.parse_args()
-    model = PrototypeDL(args.datadir, args.channels, args.height, args.model_folder, args.flag)
+    model = PrototypeDL(args.datadir, args.channels, args.height, args.model_folder, args.flag, args.hpt)
     model.run()
 
 

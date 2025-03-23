@@ -75,13 +75,14 @@ def batch_elastic_transform_color(images, sigma, alpha, height, width, random_st
     return imi
     #return e_images.reshape(-1, height * width)
 
-def batch_elastic_transform_color_(images, alpha, sigma, height,width,random_state=None):
+def batch_elastic_transform_color_(images, alpha, sigma, height,width,batch_size, random_state=None):
     """Elastic deformation of images as described in [Simard2003]_.
     .. [Simard2003] Simard, Steinkraus and Platt, "Best Practices for
        Convolutional Neural Networks applied to Visual Document Analysis", in
        Proc. of the International Conference on Document Analysis and
        Recognition, 2003.
     """
+    images = images.reshape((batch_size, height, width,3))
     if random_state is None:
         random_state = np.random.RandomState(None)
 
@@ -90,9 +91,12 @@ def batch_elastic_transform_color_(images, alpha, sigma, height,width,random_sta
     shape = images[0].shape
     print(shape)
     x, y, z = np.meshgrid(np.arange(shape[0]), np.arange(shape[1]), np.arange(shape[2]))
-    x = x.reshape((3, height, height))
-    y = y.reshape((3, height, height))
-    z = z.reshape((3, height, height))
+    #x = x.reshape((3, height, height))
+    #y = y.reshape((3, height, height))
+    #z = z.reshape((3, height, height))
+    x = x.reshape((height, height,3))
+    y = y.reshape((height, height,3))
+    z = z.reshape((height, height,3))
     for i in range(e_images.shape[0]):
         dx = gaussian_filter((random_state.rand(*shape) * 2 - 1), sigma, mode="constant", cval=0) * alpha
         dy = gaussian_filter((random_state.rand(*shape) * 2 - 1), sigma, mode="constant", cval=0) * alpha
