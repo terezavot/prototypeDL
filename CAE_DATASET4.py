@@ -5,42 +5,6 @@
 @original_author: Oscar Li
 @author of changes: Tereza Votypkova
 """
-
-## TODO: find a correct level of abstraction, add some data preprocessing to the main code (wrapper function)
-## TODO: make it possible to plug the wrappers into the main code (not to spend too much time on the preprocessing)
-## TODO: matrices --> color code the smallest values (so we can see which ones are activated the most), make
-## it more document friendly (smaller, more compact)
-## TODO: why do we have the stripey thingies for the colors --> start training on more epochs with higher accuracy to see
-## TODO: check if GPU is available on server, screens can be used --> it opens up a screen and it disconnects from the server
-## TODO: search for template for thesis, start thinking about a structure
-## 22nd --> 13:00
-
-## Contact sysadmin about how the data is handled there, how can I use my own data and code -->
-## Leave data augmentation away and try like this
-## check if there are free gpus, htop (which processes are currently running), then set the variable
-##exportcuda --> visible devices and set it to the gpu I want to use, install conda environment with
-## requirements file with
-## make it work with newer tensorflow and general versions
-## experiment section --> explain and interpret like the authors
-## abstract, introduction plus motivation, theory section (fundamental knowledge) --> supervised learning in image
-## domain, neural networks plus autoencoders plus explainability (related work section, prototype network and similar networks)
-## distinguish between explainabilty approaches
-## next section is the related work
-## main experiment section --> methodology, results, discussion, compare what I have and what they had
-## conclusion, what did we learn
-## 12th Friday 13:00
-
-## to plot averages of different runs, add it with standard deviation of the different rounds
-## round the excel numbers to 2 decimals DONE
-## figures with classes --> try to change the header in excel to the classes DONE
-## add one or more examples of the classes in the class images (more clearer then) DONE
-## indicate the experiments properly in the paper DONE
-## methodology --> why i show certain things, what is the goal, how the training was done and why DONE
-
-## to work on the thesis this weekend
-
-
-# noinspection PyUnresolvedReferences
 from __future__ import division, print_function, absolute_import
 import os
 import time
